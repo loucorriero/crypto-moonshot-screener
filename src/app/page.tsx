@@ -498,9 +498,28 @@ export default function Home() {
             the <strong>Risk Bias</strong> slider to tilt scores toward 24h
             momentum (left) or 7d momentum (right).
           </p>
+          {/*
+            Provide a brief description of what this dashboard does and how to use it.
+            This text appears below the title and risk bias explanation to orient
+            new users.  It explains that the screener surfaces potential
+            "moonshots" based on price momentum, community sentiment and on‑chain
+            metrics and encourages users to experiment with the filters, sorting
+            and watchlist.
+          */}
+          <p className="mt-2 text-sm text-gray-600">
+            This screener ranks cryptocurrencies by combining recent price
+            performance, social sentiment and on‑chain activity. Use the filters
+            below to narrow by price, percentage change, volume, sentiment,
+            liquidity or holder count. Click column headers to sort and click
+            the star to add tokens to your personal watchlist. The composite
+            <em>score</em> is a heuristic—invest at your own risk!
+          </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-4 items-center">
-          <label className="text-sm font-medium whitespace-nowrap">
+          <label
+            className="text-sm font-medium whitespace-nowrap"
+            title="Use this slider to emphasise 24h momentum (left) or 7d momentum (right) when computing the score."
+          >
             Risk Bias: {riskBias.toFixed(1)}
           </label>
           <input
@@ -511,6 +530,7 @@ export default function Home() {
             value={riskBias}
             onChange={(e) => setRiskBias(parseFloat(e.target.value))}
             className="w-full sm:w-40"
+            title="Drag to adjust the weighting between short‑term (24h) and medium‑term (7d) price changes."
           />
           <input
             type="text"
@@ -518,6 +538,7 @@ export default function Home() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full sm:w-64"
+            title="Type to search for tokens by name or symbol."
           />
         </div>
       </header>
@@ -529,7 +550,13 @@ export default function Home() {
           <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
             {/* Price range filters */}
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Min Price</label>
+              <label
+                className="block text-xs text-gray-600 mb-1"
+                title="Show only assets priced above this amount in USD."
+              >
+                Min Price
+              </label
+              >
               <input
                 type="number"
                 value={filters.minPrice}
@@ -537,10 +564,16 @@ export default function Home() {
                 className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
                 placeholder="0"
                 step="any"
+                title="Show only assets priced above this amount in USD."
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Max Price</label>
+              <label
+                className="block text-xs text-gray-600 mb-1"
+                title="Show only assets priced below this amount in USD."
+              >
+                Max Price
+              </label>
               <input
                 type="number"
                 value={filters.maxPrice}
@@ -552,7 +585,12 @@ export default function Home() {
             </div>
             {/* 24h % filters */}
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Min 24h %</label>
+              <label
+                className="block text-xs text-gray-600 mb-1"
+                title="Show only assets with a 24h percentage change greater than or equal to this value."
+              >
+                Min 24h %
+              </label>
               <input
                 type="number"
                 value={filters.min24h}
@@ -563,7 +601,12 @@ export default function Home() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Max 24h %</label>
+              <label
+                className="block text-xs text-gray-600 mb-1"
+                title="Show only assets with a 24h percentage change less than or equal to this value."
+              >
+                Max 24h %
+              </label>
               <input
                 type="number"
                 value={filters.max24h}
@@ -575,7 +618,12 @@ export default function Home() {
             </div>
             {/* 7d % filters */}
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Min 7d %</label>
+              <label
+                className="block text-xs text-gray-600 mb-1"
+                title="Show only assets with a 7 day percentage change greater than or equal to this value."
+              >
+                Min 7d %
+              </label>
               <input
                 type="number"
                 value={filters.min7d}
@@ -586,7 +634,12 @@ export default function Home() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Max 7d %</label>
+              <label
+                className="block text-xs text-gray-600 mb-1"
+                title="Show only assets with a 7 day percentage change less than or equal to this value."
+              >
+                Max 7d %
+              </label>
               <input
                 type="number"
                 value={filters.max7d}
@@ -598,7 +651,12 @@ export default function Home() {
             </div>
             {/* Volume minimum filter */}
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Min Volume</label>
+              <label
+                className="block text-xs text-gray-600 mb-1"
+                title="Show only assets whose 24h trading volume exceeds this amount."
+              >
+                Min Volume
+              </label>
               <input
                 type="number"
                 value={filters.minVolume}
@@ -610,7 +668,12 @@ export default function Home() {
             </div>
             {/* Market cap minimum filter */}
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Min Market Cap</label>
+              <label
+                className="block text-xs text-gray-600 mb-1"
+                title="Show only assets with market capitalisation above this amount."
+              >
+                Min Market Cap
+              </label>
               <input
                 type="number"
                 value={filters.minMarketCap}
@@ -622,7 +685,12 @@ export default function Home() {
             </div>
             {/* Bullish sentiment minimum filter */}
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Min Bullish</label>
+              <label
+                className="block text-xs text-gray-600 mb-1"
+                title="Show only assets with bullish sentiment at or above this threshold (0–100 scale)."
+              >
+                Min Bullish
+              </label>
               <input
                 type="number"
                 value={filters.minBullish}
@@ -634,7 +702,12 @@ export default function Home() {
             </div>
             {/* Bearish sentiment maximum filter */}
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Max Bearish</label>
+              <label
+                className="block text-xs text-gray-600 mb-1"
+                title="Show only assets with bearish sentiment at or below this threshold (0–100 scale)."
+              >
+                Max Bearish
+              </label>
               <input
                 type="number"
                 value={filters.maxBearish}
@@ -646,7 +719,12 @@ export default function Home() {
             </div>
             {/* Liquidity minimum filter */}
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Min Liquidity</label>
+              <label
+                className="block text-xs text-gray-600 mb-1"
+                title="Show only assets with at least this amount of liquidity locked in pools (USD)."
+              >
+                Min Liquidity
+              </label>
               <input
                 type="number"
                 value={filters.minLiquidity}
@@ -658,7 +736,12 @@ export default function Home() {
             </div>
             {/* Holders minimum filter */}
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Min Holders</label>
+              <label
+                className="block text-xs text-gray-600 mb-1"
+                title="Show only assets held by at least this many unique wallets."
+              >
+                Min Holders
+              </label>
               <input
                 type="number"
                 value={filters.minHolders}
@@ -675,6 +758,7 @@ export default function Home() {
                 <th
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  title="Click to add or remove an asset from your watchlist."
                 >
                   Watch
                 </th>
@@ -683,6 +767,7 @@ export default function Home() {
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
                   onClick={() => handleSort("name")}
+                  title="Asset name and symbol"
                 >
                   Asset
                   {sortField === "name" && (
@@ -694,6 +779,7 @@ export default function Home() {
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
                   onClick={() => handleSort("price")}
+                  title="Current price in US dollars"
                 >
                   Price (USD)
                   {sortField === "price" && (
@@ -705,6 +791,7 @@ export default function Home() {
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
                   onClick={() => handleSort("24h")}
+                  title="Price percentage change over the last 24 hours"
                 >
                   24h %
                   {sortField === "24h" && (
@@ -716,6 +803,7 @@ export default function Home() {
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
                   onClick={() => handleSort("7d")}
+                  title="Price percentage change over the last 7 days"
                 >
                   7d %
                   {sortField === "7d" && (
@@ -727,6 +815,7 @@ export default function Home() {
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
                   onClick={() => handleSort("volume")}
+                  title="Total trading volume in the past 24 hours"
                 >
                   Volume
                   {sortField === "volume" && (
@@ -738,6 +827,7 @@ export default function Home() {
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
                   onClick={() => handleSort("market_cap")}
+                  title="Market capitalisation of the token"
                 >
                   Mkt Cap
                   {sortField === "market_cap" && (
@@ -749,6 +839,7 @@ export default function Home() {
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
                   onClick={() => handleSort("bullish")}
+                  title="Bullish sentiment score (0–100 reflecting positive social posts)"
                 >
                   Bullish
                   {sortField === "bullish" && (
@@ -760,6 +851,7 @@ export default function Home() {
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
                   onClick={() => handleSort("bearish")}
+                  title="Bearish sentiment score (0–100 reflecting negative social posts)"
                 >
                   Bearish
                   {sortField === "bearish" && (
@@ -771,6 +863,7 @@ export default function Home() {
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
                   onClick={() => handleSort("mentions")}
+                  title="Number of social media mentions or posts"
                 >
                   Mentions
                   {sortField === "mentions" && (
@@ -782,6 +875,7 @@ export default function Home() {
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
                   onClick={() => handleSort("liquidity")}
+                  title="Estimated liquidity locked in DeFi pools (USD)"
                 >
                   Liquidity
                   {sortField === "liquidity" && (
@@ -793,6 +887,7 @@ export default function Home() {
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
                   onClick={() => handleSort("holders")}
+                  title="Number of unique wallets holding the asset"
                 >
                   Holders
                   {sortField === "holders" && (
@@ -804,6 +899,7 @@ export default function Home() {
                   scope="col"
                   className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
                   onClick={() => handleSort("score")}
+                  title="Composite score combining momentum, sentiment and on‑chain metrics"
                 >
                   Score
                   {sortField === "score" && (
@@ -824,6 +920,11 @@ export default function Home() {
                           ? `Remove ${asset.name} from watchlist`
                           : `Add ${asset.name} to watchlist`
                       }
+                    title={
+                      watchlist.has(asset.id)
+                        ? `Remove ${asset.name} from your watchlist`
+                        : `Add ${asset.name} to your watchlist`
+                    }
                     >
                       {watchlist.has(asset.id) ? "⭐" : "☆"}
                     </button>
