@@ -1040,19 +1040,28 @@ export default function Home() {
                   className={`hover:bg-gray-50 ${getRowColor(asset.score)}`}
                 >
                   <td className="px-4 py-2 text-center">
+                    {/*
+                      The watchlist toggle button uses a star icon (filled when watched,
+                      outline when not).  We apply a larger font and a distinct colour
+                      when the asset is in the watchlist to make it easier to see
+                      whether an item is starred.  The aria-label and title provide
+                      accessible descriptions for screen readers and tooltips.
+                    */}
                     <button
                       onClick={() => toggleWatch(asset.id)}
-                      className="text-2xl focus:outline-none"
+                      className={`text-3xl focus:outline-none ${
+                        watchlist.has(asset.id) ? "text-yellow-500" : "text-gray-400"
+                      }`}
                       aria-label={
                         watchlist.has(asset.id)
                           ? `Remove ${asset.name} from watchlist`
                           : `Add ${asset.name} to watchlist`
                       }
-                    title={
-                      watchlist.has(asset.id)
-                        ? `Remove ${asset.name} from your watchlist`
-                        : `Add ${asset.name} to your watchlist`
-                    }
+                      title={
+                        watchlist.has(asset.id)
+                          ? `Remove ${asset.name} from your watchlist`
+                          : `Add ${asset.name} to your watchlist`
+                      }
                     >
                       {watchlist.has(asset.id) ? "⭐" : "☆"}
                     </button>
