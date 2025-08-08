@@ -102,6 +102,35 @@ export default function Home() {
   const [search, setSearch] = useState<string>("");
   const [watchlist, setWatchlist] = useState<Set<string>>(new Set());
 
+  // Load any persisted watchlist from local storage on initial mount.  By
+  // storing the watchlist as an array of IDs, we can rehydrate the Set
+  // easily.  If no data is present, the default empty set is used.
+  useEffect(() => {
+    try {
+      const saved = typeof window !== "undefined" ? localStorage.getItem("watchlist") : null;
+      if (saved) {
+        const ids = JSON.parse(saved) as string[];
+        setWatchlist(new Set(ids));
+      }
+    } catch (err) {
+      // Ignore JSON errors or storage issues silently.
+    }
+  }, []);
+
+  // Persist the watchlist to local storage whenever it changes.  This
+  // ensures that starred assets remain selected across page reloads and
+  // navigation.  We serialise the Set as an array of strings.
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const arr = Array.from(watchlist);
+        localStorage.setItem("watchlist", JSON.stringify(arr));
+      }
+    } catch (err) {
+      // Storage quota errors are ignored; persistence is best‑effort.
+    }
+  }, [watchlist]);
+
   // Sorting state: which column is currently sorted and in which direction.
   // Default to descending by score to surface high momentum tokens.  The
   // sortField names correspond to keys on the asset object or derived
