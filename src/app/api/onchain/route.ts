@@ -29,7 +29,12 @@ export async function GET(request: Request) {
   const result = ids.map((id) => {
     const h = hash(id);
     const liquidity = ((h % 1000) + 500) * 1000; // between 500k and 1.5M
-    const holders = ((h >> 8) % 50000) + 1000; // between 1k and 51k
+    // Use an unsigned right shift (>>>) when deriving the holders value to
+    // avoid negative numbers.  Using the signed right shift (>>) could
+    // propagate the sign bit if the hash's most significant bit is set,
+    // resulting in negative values when taking the modulo.  The zero‑fill
+    // right shift (>>>) treats the value as unsigned.
+    const holders = (((h >>> 8) % 50000) + 1000); // between 1k and 51k
     return {
       id,
       liquidity,
