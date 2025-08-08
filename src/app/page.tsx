@@ -1042,7 +1042,7 @@ export default function Home() {
                   <td className="px-4 py-2 text-center">
                     <button
                       onClick={() => toggleWatch(asset.id)}
-                      className="text-xl focus:outline-none"
+                      className="text-2xl focus:outline-none"
                       aria-label={
                         watchlist.has(asset.id)
                           ? `Remove ${asset.name} from watchlist`
