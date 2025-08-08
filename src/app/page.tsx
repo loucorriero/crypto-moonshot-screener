@@ -34,6 +34,9 @@ interface Asset {
   // market depth and decentralisation respectively.
   liquidity?: number;
   holders?: number;
+  // News or catalyst alerts returned from the /api/news endpoint.  Each
+  // update describes why a token is attracting attention (e.g. trending).
+  alerts?: { title: string; description: string; created_at: string; rank?: number }[];
 }
 
 /**
@@ -171,7 +174,8 @@ export default function Home() {
       onchainData.forEach((o) => {
         onchainMap[o.id] = o;
       });
-      const combined: Asset[] = priceData.map((asset) => {
+      // Merge the extra metrics into the price data to form a base array.
+      const merged: Asset[] = priceData.map((asset) => {
         const extra: any = {};
         const s = sentimentMap[asset.id];
         if (s) {
@@ -186,7 +190,28 @@ export default function Home() {
         }
         return { ...asset, ...extra };
       });
-      setAssets(combined);
+      // Fetch news or catalyst alerts for the combined list.  This call
+      // identifies tokens that are trending on CoinGecko and annotates
+      // them accordingly.  If the request fails, an empty array is
+      // returned and alerts will remain undefined.
+      let withNews: Asset[] = merged;
+      try {
+        const newsRes = await fetch(`/api/news?ids=${idStr}`);
+        if (newsRes.ok) {
+          const newsData: any[] = await newsRes.json();
+          const newsMap: Record<string, any> = {};
+          newsData.forEach((n) => {
+            newsMap[n.id] = n;
+          });
+          withNews = merged.map((asset) => {
+            const n = newsMap[asset.id];
+            return n ? { ...asset, alerts: n.updates } : asset;
+          });
+        }
+      } catch (err) {
+        // Ignore errors; alerts will simply be omitted.
+      }
+      setAssets(withNews);
     } catch (err) {
       console.error(err);
     } finally {
@@ -271,7 +296,8 @@ export default function Home() {
                   oData.forEach((o: any) => {
                     oMap[o.id] = o;
                   });
-                  const combined: Asset[] = priceData.map((asset) => {
+                  // Merge price, sentiment and on‑chain metrics into a base array.
+                  const merged: Asset[] = priceData.map((asset) => {
                     const extra: any = {};
                     const s = sMap[asset.id];
                     if (s) {
@@ -286,7 +312,29 @@ export default function Home() {
                     }
                     return { ...asset, ...extra };
                   });
-                  setAssets(combined);
+                  // Fetch news alerts for the current set of price IDs.  This
+                  // identifies tokens that are trending on CoinGecko and
+                  // annotates them with a catalyst message.  Failures
+                  // silently fallback to leaving alerts undefined.
+                  let withNews: Asset[] = merged;
+                  try {
+                    const idStr2 = priceData.map((p) => p.id).join(",");
+                    const newsRes = await fetch(`/api/news?ids=${idStr2}`);
+                    if (newsRes.ok) {
+                      const newsData: any[] = await newsRes.json();
+                      const newsMap: Record<string, any> = {};
+                      newsData.forEach((n) => {
+                        newsMap[n.id] = n;
+                      });
+                      withNews = merged.map((asset) => {
+                        const n = newsMap[asset.id];
+                        return n ? { ...asset, alerts: n.updates } : asset;
+                      });
+                    }
+                  } catch (err) {
+                    // ignore errors; leave alerts undefined
+                  }
+                  setAssets(withNews);
                 } catch (fetchErr) {
                   console.error(fetchErr);
                   // Even if merging fails, still set the price data so that
@@ -471,6 +519,12 @@ export default function Home() {
             return item.liquidity ?? 0;
           case "holders":
             return item.holders ?? 0;
+          case "alert":
+            // Use the rank from the first alert if present; lower rank (closer to 1) should be considered "bigger" when sorting descending.
+            // If no alerts, return zero.  A token trending at rank 1 will yield 1, which will appear ahead of others when sorting descending (via multiplier).
+            return item.alerts && item.alerts.length > 0
+              ? (item.alerts[0].rank ?? 0)
+              : 0;
           case "name":
             return item.name.toLowerCase();
           case "score":
@@ -581,6 +635,7 @@ export default function Home() {
                 className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
                 placeholder=""
                 step="any"
+                title="Show only assets priced below this amount in USD."
               />
             </div>
             {/* 24h % filters */}
@@ -598,6 +653,7 @@ export default function Home() {
                 className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
                 placeholder=""
                 step="any"
+                title="Show only assets with a 24h percentage change greater than or equal to this value."
               />
             </div>
             <div>
@@ -614,6 +670,7 @@ export default function Home() {
                 className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
                 placeholder=""
                 step="any"
+                title="Show only assets with a 24h percentage change less than or equal to this value."
               />
             </div>
             {/* 7d % filters */}
@@ -631,6 +688,7 @@ export default function Home() {
                 className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
                 placeholder=""
                 step="any"
+                title="Show only assets with a 7 day percentage change greater than or equal to this value."
               />
             </div>
             <div>
@@ -647,6 +705,7 @@ export default function Home() {
                 className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
                 placeholder=""
                 step="any"
+                title="Show only assets with a 7 day percentage change less than or equal to this value."
               />
             </div>
             {/* Volume minimum filter */}
@@ -664,6 +723,7 @@ export default function Home() {
                 className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
                 placeholder=""
                 step="any"
+                title="Show only assets whose 24h trading volume exceeds this amount."
               />
             </div>
             {/* Market cap minimum filter */}
@@ -681,6 +741,7 @@ export default function Home() {
                 className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
                 placeholder=""
                 step="any"
+                title="Show only assets with market capitalisation above this amount."
               />
             </div>
             {/* Bullish sentiment minimum filter */}
@@ -698,6 +759,7 @@ export default function Home() {
                 className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
                 placeholder=""
                 step="any"
+                title="Show only assets with bullish sentiment at or above this threshold (0–100 scale)."
               />
             </div>
             {/* Bearish sentiment maximum filter */}
@@ -715,6 +777,7 @@ export default function Home() {
                 className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
                 placeholder=""
                 step="any"
+                title="Show only assets with bearish sentiment at or below this threshold (0–100 scale)."
               />
             </div>
             {/* Liquidity minimum filter */}
@@ -732,6 +795,7 @@ export default function Home() {
                 className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
                 placeholder=""
                 step="any"
+                title="Show only assets with at least this amount of liquidity locked in pools (USD)."
               />
             </div>
             {/* Holders minimum filter */}
@@ -749,6 +813,7 @@ export default function Home() {
                 className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
                 placeholder=""
                 step="any"
+                title="Show only assets held by at least this many unique wallets."
               />
             </div>
           </div>
@@ -894,6 +959,18 @@ export default function Home() {
                     <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
                   )}
                 </th>
+                {/* Alert column header */}
+                <th
+                  scope="col"
+                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => handleSort("alert")}
+                  title="Indicator of whether the token is trending or has a recent catalyst"
+                >
+                  Alerts
+                  {sortField === "alert" && (
+                    <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                  )}
+                </th>
                 {/* Score column header */}
                 <th
                   scope="col"
@@ -1014,6 +1091,18 @@ export default function Home() {
                       ? asset.holders.toLocaleString()
                       : "—"}
                   </td>
+                {/* Alerts cell */}
+                <td className="px-4 py-2 whitespace-nowrap">
+                  {asset.alerts && asset.alerts.length > 0 ? (
+                    <span title={asset.alerts[0].description}>
+                      {asset.alerts[0].title.length > 30
+                        ? `${asset.alerts[0].title.slice(0, 30)}…`
+                        : asset.alerts[0].title}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
                   {/* Score cell */}
                   <td className="px-4 py-2 whitespace-nowrap">
                     {asset.score !== undefined
