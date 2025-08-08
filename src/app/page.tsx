@@ -67,24 +67,70 @@ export default function Home() {
   const [search, setSearch] = useState<string>("");
   const [watchlist, setWatchlist] = useState<Set<string>>(new Set());
 
-  // Fetch price data on mount.  We construct the query string from
-  // DEFAULT_IDS to keep the call generic and easily configurable.
+  // Helper to load the default set of tokens defined in DEFAULT_IDS.
+  async function loadDefault() {
+    setLoading(true);
+    try {
+      const ids = DEFAULT_IDS.join(",");
+      const res = await fetch(`/api/prices?ids=${ids}`);
+      const data: Asset[] = await res.json();
+      setAssets(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Fetch price data on mount by loading the default tokens.  We use
+  // a dedicated helper so that the same logic can be reused when the
+  // search query is cleared.
   useEffect(() => {
-    async function fetchData() {
+    loadDefault();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // When the search term changes, either reload the default list (if the
+  // search box is empty) or query the API for matching tokens.  The search
+  // endpoint returns basic metadata; we then fetch price data for the top
+  // matches to display.  Limiting the number of IDs helps stay within
+  // reasonable API request sizes and rate limits.
+  useEffect(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) {
+      // Reset to default list when search is cleared.
+      loadDefault();
+      return;
+    }
+    async function loadSearch() {
       setLoading(true);
       try {
-        const ids = DEFAULT_IDS.join(",");
-        const res = await fetch(`/api/prices?ids=${ids}`);
-        const data: Asset[] = await res.json();
-        setAssets(data);
+        const res = await fetch(
+          `/api/search?query=${encodeURIComponent(term)}`
+        );
+        const data = await res.json();
+        // data.coins is an array of search results; each has an `id`.
+        if (data?.coins) {
+          const ids: string[] = data.coins.map((c: any) => c.id).slice(0, 15);
+          if (ids.length > 0) {
+            const priceRes = await fetch(
+              `/api/prices?ids=${ids.join(",")}`
+            );
+            const priceData: Asset[] = await priceRes.json();
+            setAssets(priceData);
+          } else {
+            setAssets([]);
+          }
+        }
       } catch (err) {
         console.error(err);
       } finally {
         setLoading(false);
       }
     }
-    fetchData();
-  }, []);
+    loadSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   /** Toggle watch status for a given asset id. */
   function toggleWatch(id: string) {
