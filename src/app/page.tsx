@@ -552,13 +552,13 @@ export default function Home() {
   function getRowColor(score: number | undefined): string {
     if (score === undefined) return "";
     // Good moonshot: strong momentum and sentiment
-    if (score >= 8) return "bg-green-100";
+    if (score >= 8) return "bg-green-200";
     // Moderate: some positive signals but not exceptional
-    if (score >= 4) return "bg-yellow-100";
+    if (score >= 4) return "bg-yellow-200";
     // Weak positive: slight upside but limited conviction
-    if (score >= 0) return "bg-orange-100";
+    if (score >= 0) return "bg-orange-200";
     // Negative: overall bearish or thin liquidity
-    return "bg-red-100";
+    return "bg-red-200";
   }
 
   return (
