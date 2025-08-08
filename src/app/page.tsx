@@ -67,6 +67,29 @@ export default function Home() {
   const [search, setSearch] = useState<string>("");
   const [watchlist, setWatchlist] = useState<Set<string>>(new Set());
 
+  // Sorting state: which column is currently sorted and in which direction.
+  // Default to descending by score to surface high momentum tokens.  The
+  // sortField names correspond to keys on the asset object or derived
+  // properties (e.g. "24h" maps to price_change_percentage_24h).
+  const [sortField, setSortField] = useState<string>("score");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">(
+    "desc"
+  );
+
+  // Filter state: numeric ranges for price, 24h %, 7d %, volume and market cap.
+  // Values are stored as strings for controlled inputs; empty string means no
+  // filter applied.  Min and max values are inclusive when specified.
+  const [filters, setFilters] = useState({
+    minPrice: "",
+    maxPrice: "",
+    min24h: "",
+    max24h: "",
+    min7d: "",
+    max7d: "",
+    minVolume: "",
+    minMarketCap: "",
+  });
+
   // When searching, debounce API calls to avoid hitting rate limits.  This
   // ref stores the current timeout so that it can be cleared on subsequent
   // renders before scheduling a new request.  Without debouncing, each
@@ -185,27 +208,128 @@ export default function Home() {
     });
   }
 
-  // Prepare rows for display: apply search filter, compute score and sort.
+  /**
+   * Update the filter state for a given key.  Converts the input event's
+   * value directly to a string; empty strings indicate no filter.  This
+   * helper uses functional updates to avoid stale state issues.
+   */
+  function updateFilter(key: keyof typeof filters, value: string) {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+  }
+
+  /**
+   * Handle sorting by a specific field.  Clicking on a column header will
+   * toggle between ascending and descending order if that column is already
+   * selected.  Selecting a new column defaults to descending order.
+   */
+  function handleSort(field: string) {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDirection("desc");
+    }
+  }
+
+  // Prepare rows for display: apply search and numeric filters, compute score,
+  // and apply sorting based on the selected column and direction.  The
+  // watchlist still takes priority: watched items always appear at the top.
   const filtered: Asset[] = assets
     .filter((asset) => {
+      // Text search filter: if a term is present, match name or symbol
       const term = search.toLowerCase().trim();
-      if (!term) return true;
-      return (
-        asset.name.toLowerCase().includes(term) ||
-        asset.symbol.toLowerCase().includes(term)
-      );
+      if (term) {
+        const matchesName = asset.name.toLowerCase().includes(term);
+        const matchesSymbol = asset.symbol.toLowerCase().includes(term);
+        if (!matchesName && !matchesSymbol) return false;
+      }
+      // Numeric filters: parse values; skip if empty or NaN
+      const {
+        minPrice,
+        maxPrice,
+        min24h,
+        max24h,
+        min7d,
+        max7d,
+        minVolume,
+        minMarketCap,
+      } = filters;
+      const price = asset.current_price ?? 0;
+      const change24h = asset.price_change_percentage_24h ?? 0;
+      const change7d = asset.price_change_percentage_7d_in_currency ?? 0;
+      const volume = asset.total_volume ?? 0;
+      const mcap = asset.market_cap ?? 0;
+      // Price range
+      if (minPrice !== "" && !isNaN(parseFloat(minPrice)) && price < parseFloat(minPrice)) {
+        return false;
+      }
+      if (maxPrice !== "" && !isNaN(parseFloat(maxPrice)) && price > parseFloat(maxPrice)) {
+        return false;
+      }
+      // 24h change range
+      if (min24h !== "" && !isNaN(parseFloat(min24h)) && change24h < parseFloat(min24h)) {
+        return false;
+      }
+      if (max24h !== "" && !isNaN(parseFloat(max24h)) && change24h > parseFloat(max24h)) {
+        return false;
+      }
+      // 7d change range
+      if (min7d !== "" && !isNaN(parseFloat(min7d)) && change7d < parseFloat(min7d)) {
+        return false;
+      }
+      if (max7d !== "" && !isNaN(parseFloat(max7d)) && change7d > parseFloat(max7d)) {
+        return false;
+      }
+      // Volume minimum
+      if (minVolume !== "" && !isNaN(parseFloat(minVolume)) && volume < parseFloat(minVolume)) {
+        return false;
+      }
+      // Market cap minimum
+      if (minMarketCap !== "" && !isNaN(parseFloat(minMarketCap)) && mcap < parseFloat(minMarketCap)) {
+        return false;
+      }
+      return true;
     })
     .map((asset) => {
       const score = calculateScore(asset, riskBias);
       return { ...asset, score };
     })
     .sort((a, b) => {
+      // Always show watched items first
       const aWatched = watchlist.has(a.id);
       const bWatched = watchlist.has(b.id);
       if (aWatched && !bWatched) return -1;
       if (!aWatched && bWatched) return 1;
-      // Secondary sort: descending by score.
-      return (b.score ?? 0) - (a.score ?? 0);
+      // Determine multiplier for ascending/descending
+      const multiplier = sortDirection === "asc" ? 1 : -1;
+      // Extract values based on sortField
+      const getValue = (item: Asset) => {
+        switch (sortField) {
+          case "price":
+            return item.current_price ?? 0;
+          case "24h":
+            return item.price_change_percentage_24h ?? 0;
+          case "7d":
+            return item.price_change_percentage_7d_in_currency ?? 0;
+          case "volume":
+            return item.total_volume ?? 0;
+          case "market_cap":
+            return item.market_cap ?? 0;
+          case "name":
+            return item.name.toLowerCase();
+          case "score":
+          default:
+            return item.score ?? 0;
+        }
+      };
+      const aVal = getValue(a);
+      const bVal = getValue(b);
+      // Alphabetic comparison for names
+      if (sortField === "name") {
+        return multiplier * (aVal as string).localeCompare(bVal as string);
+      }
+      // Numeric comparison
+      return multiplier * ((aVal as number) - (bVal as number));
     });
 
   return (
@@ -245,6 +369,102 @@ export default function Home() {
         <p>Loading data…</p>
       ) : (
         <div className="overflow-x-auto">
+          {/* Filter controls */}
+          <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
+            {/* Price range filters */}
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Min Price</label>
+              <input
+                type="number"
+                value={filters.minPrice}
+                onChange={(e) => updateFilter("minPrice", e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+                placeholder="0"
+                step="any"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Max Price</label>
+              <input
+                type="number"
+                value={filters.maxPrice}
+                onChange={(e) => updateFilter("maxPrice", e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+                placeholder=""
+                step="any"
+              />
+            </div>
+            {/* 24h % filters */}
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Min 24h %</label>
+              <input
+                type="number"
+                value={filters.min24h}
+                onChange={(e) => updateFilter("min24h", e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+                placeholder=""
+                step="any"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Max 24h %</label>
+              <input
+                type="number"
+                value={filters.max24h}
+                onChange={(e) => updateFilter("max24h", e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+                placeholder=""
+                step="any"
+              />
+            </div>
+            {/* 7d % filters */}
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Min 7d %</label>
+              <input
+                type="number"
+                value={filters.min7d}
+                onChange={(e) => updateFilter("min7d", e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+                placeholder=""
+                step="any"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Max 7d %</label>
+              <input
+                type="number"
+                value={filters.max7d}
+                onChange={(e) => updateFilter("max7d", e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+                placeholder=""
+                step="any"
+              />
+            </div>
+            {/* Volume minimum filter */}
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Min Volume</label>
+              <input
+                type="number"
+                value={filters.minVolume}
+                onChange={(e) => updateFilter("minVolume", e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+                placeholder=""
+                step="any"
+              />
+            </div>
+            {/* Market cap minimum filter */}
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Min Market Cap</label>
+              <input
+                type="number"
+                value={filters.minMarketCap}
+                onChange={(e) => updateFilter("minMarketCap", e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+                placeholder=""
+                step="any"
+              />
+            </div>
+          </div>
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-100">
               <tr>
@@ -254,35 +474,82 @@ export default function Home() {
                 >
                   Watch
                 </th>
+                {/* Asset column header with sort by name */}
                 <th
                   scope="col"
-                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => handleSort("name")}
                 >
                   Asset
+                  {sortField === "name" && (
+                    <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                  )}
                 </th>
+                {/* Price column header */}
                 <th
                   scope="col"
-                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => handleSort("price")}
                 >
                   Price (USD)
+                  {sortField === "price" && (
+                    <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                  )}
                 </th>
+                {/* 24h % column header */}
                 <th
                   scope="col"
-                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => handleSort("24h")}
                 >
                   24h %
+                  {sortField === "24h" && (
+                    <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                  )}
                 </th>
+                {/* 7d % column header */}
                 <th
                   scope="col"
-                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => handleSort("7d")}
                 >
                   7d %
+                  {sortField === "7d" && (
+                    <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                  )}
                 </th>
+                {/* Volume column header */}
                 <th
                   scope="col"
-                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => handleSort("volume")}
+                >
+                  Volume
+                  {sortField === "volume" && (
+                    <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                  )}
+                </th>
+                {/* Market cap column header */}
+                <th
+                  scope="col"
+                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => handleSort("market_cap")}
+                >
+                  Market Cap
+                  {sortField === "market_cap" && (
+                    <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                  )}
+                </th>
+                {/* Score column header */}
+                <th
+                  scope="col"
+                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => handleSort("score")}
                 >
                   Score
+                  {sortField === "score" && (
+                    <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                  )}
                 </th>
               </tr>
             </thead>
@@ -310,6 +577,7 @@ export default function Home() {
                       ({asset.symbol})
                     </span>
                   </td>
+                  {/* Price cell */}
                   <td className="px-4 py-2 whitespace-nowrap">
                     ${
                       asset.current_price?.toLocaleString(undefined, {
@@ -318,6 +586,7 @@ export default function Home() {
                       }) ?? "—"
                     }
                   </td>
+                  {/* 24h % cell */}
                   <td
                     className={`px-4 py-2 whitespace-nowrap ${
                       (asset.price_change_percentage_24h ?? 0) >= 0
@@ -327,6 +596,7 @@ export default function Home() {
                   >
                     {asset.price_change_percentage_24h?.toFixed(2) ?? "–"}%
                   </td>
+                  {/* 7d % cell */}
                   <td
                     className={`px-4 py-2 whitespace-nowrap ${
                       (asset.price_change_percentage_7d_in_currency ?? 0) >= 0
@@ -338,6 +608,23 @@ export default function Home() {
                       "–"}
                     %
                   </td>
+                  {/* Volume cell */}
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {asset.total_volume !== undefined
+                      ? asset.total_volume.toLocaleString(undefined, {
+                          maximumFractionDigits: 0,
+                        })
+                      : "—"}
+                  </td>
+                  {/* Market cap cell */}
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {asset.market_cap !== undefined
+                      ? asset.market_cap.toLocaleString(undefined, {
+                          maximumFractionDigits: 0,
+                        })
+                      : "—"}
+                  </td>
+                  {/* Score cell */}
                   <td className="px-4 py-2 whitespace-nowrap">
                     {asset.score?.toFixed(2)}
                   </td>
