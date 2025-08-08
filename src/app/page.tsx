@@ -20,6 +20,20 @@ interface Asset {
   // The computed score is added client‑side based on the risk bias.  It is
   // derived from recent price change percentages.
   score?: number;
+  // Sentiment metrics returned from the /api/sentiment endpoint.  These
+  // scores represent bullish/bearish sentiment and raw mention volume.  A
+  // higher bullishScore suggests more positive chatter, while a higher
+  // bearishScore reflects more negative posts.  Mention volume indicates
+  // overall social activity.
+  bullishScore?: number;
+  bearishScore?: number;
+  mentionVolume?: number;
+  // On‑chain metrics returned from the /api/onchain endpoint.  Liquidity
+  // approximates how much capital is locked in pools for the token and
+  // holders denotes the number of unique wallets.  These values help gauge
+  // market depth and decentralisation respectively.
+  liquidity?: number;
+  holders?: number;
 }
 
 /**
@@ -50,8 +64,26 @@ function calculateScore(
 ): number {
   const change24h = asset.price_change_percentage_24h ?? 0;
   const change7d = asset.price_change_percentage_7d_in_currency ?? 0;
-  // Weight the momentum metrics according to the risk bias.
-  return (1 - riskBias) * change24h + riskBias * change7d;
+  // Base momentum component emphasises recent price changes.  The risk bias
+  // controls how much weight to place on 24h versus 7d performance.
+  const momentum = (1 - riskBias) * change24h + riskBias * change7d;
+  // Sentiment component: a positive net sentiment (bullish minus bearish)
+  // boosts the score while a negative net sentiment reduces it.  The
+  // divisor scales the difference (0–100 range) down to a modest
+  // contribution (±10).  If sentiment scores are undefined they are
+  // treated as zero.
+  const bullish = asset.bullishScore ?? 0;
+  const bearish = asset.bearishScore ?? 0;
+  const netSentiment = bullish - bearish;
+  const sentimentComponent = netSentiment / 10; // yields roughly ±10
+  // On‑chain component: more holders implies a broader holder base.  We
+  // normalise by 10,000 to produce a value in the range 0–5 given our
+  // stubbed holder counts (1k–51k).  If holders is undefined the
+  // contribution is zero.  Liquidity could also be incorporated here but
+  // we omit it to avoid overweighting one factor.
+  const holders = asset.holders ?? 0;
+  const onchainComponent = holders / 10000;
+  return momentum + sentimentComponent + onchainComponent;
 }
 
 /**
@@ -88,6 +120,14 @@ export default function Home() {
     max7d: "",
     minVolume: "",
     minMarketCap: "",
+    // Additional filters for new metrics.  These allow users to specify
+    // minimum bullish sentiment, maximum bearish sentiment, minimum
+    // liquidity and minimum holder counts.  Empty strings represent no
+    // filter.
+    minBullish: "",
+    maxBearish: "",
+    minLiquidity: "",
+    minHolders: "",
   });
 
   // When searching, debounce API calls to avoid hitting rate limits.  This
@@ -102,9 +142,51 @@ export default function Home() {
     setLoading(true);
     try {
       const ids = DEFAULT_IDS.join(",");
-      const res = await fetch(`/api/prices?ids=${ids}`);
-      const data: Asset[] = await res.json();
-      setAssets(data);
+      // Fetch price data for the default list of tokens.
+      const priceRes = await fetch(`/api/prices?ids=${ids}`);
+      const priceData: Asset[] = await priceRes.json();
+      // If no data returned, exit early.
+      if (!priceData || priceData.length === 0) {
+        setAssets([]);
+        return;
+      }
+      // Prepare comma‑delimited list of IDs for sentiment and on‑chain requests.
+      const idStr = priceData.map((a) => a.id).join(",");
+      // Fetch sentiment and on‑chain metrics concurrently.  These endpoints
+      // return stubbed data for demonstration purposes but can be wired to
+      // real providers in production.
+      const [sentimentRes, onchainRes] = await Promise.all([
+        fetch(`/api/sentiment?ids=${idStr}`),
+        fetch(`/api/onchain?ids=${idStr}`),
+      ]);
+      const sentimentData: any[] = sentimentRes.ok ? await sentimentRes.json() : [];
+      const onchainData: any[] = onchainRes.ok ? await onchainRes.json() : [];
+      // Merge the additional metrics into the price data.  We create a
+      // lookup table for faster ID‑based access.
+      const sentimentMap: Record<string, any> = {};
+      sentimentData.forEach((s) => {
+        sentimentMap[s.id] = s;
+      });
+      const onchainMap: Record<string, any> = {};
+      onchainData.forEach((o) => {
+        onchainMap[o.id] = o;
+      });
+      const combined: Asset[] = priceData.map((asset) => {
+        const extra: any = {};
+        const s = sentimentMap[asset.id];
+        if (s) {
+          extra.bullishScore = s.bullishScore;
+          extra.bearishScore = s.bearishScore;
+          extra.mentionVolume = s.mentionVolume;
+        }
+        const o = onchainMap[asset.id];
+        if (o) {
+          extra.liquidity = o.liquidity;
+          extra.holders = o.holders;
+        }
+        return { ...asset, ...extra };
+      });
+      setAssets(combined);
     } catch (err) {
       console.error(err);
     } finally {
@@ -161,17 +243,57 @@ export default function Home() {
             const priceRes = await fetch(
               `/api/prices?ids=${ids.join(",")}`
             );
-            if (!priceRes.ok) {
-              // If the price endpoint returns an error (e.g. 429 Too Many
-              // Requests), log it and clear the results instead of throwing.
-              console.error(
-                `Price fetch failed with status ${priceRes.status}`
-              );
-              setAssets([]);
-            } else {
-              const priceData: Asset[] = await priceRes.json();
-              setAssets(priceData);
-            }
+              if (!priceRes.ok) {
+                // If the price endpoint returns an error (e.g. 429 Too Many
+                // Requests), log it and clear the results instead of throwing.
+                console.error(
+                  `Price fetch failed with status ${priceRes.status}`
+                );
+                setAssets([]);
+              } else {
+                const priceData: Asset[] = await priceRes.json();
+                // After retrieving prices, fetch sentiment and on‑chain
+                // metrics and merge them.  If either request fails, we
+                // gracefully continue with whatever data is available.
+                const idStr = priceData.map((p) => p.id).join(",");
+                try {
+                  const [sentRes, onRes] = await Promise.all([
+                    fetch(`/api/sentiment?ids=${idStr}`),
+                    fetch(`/api/onchain?ids=${idStr}`),
+                  ]);
+                  const sData: any[] = sentRes.ok ? await sentRes.json() : [];
+                  const oData: any[] = onRes.ok ? await onRes.json() : [];
+                  const sMap: Record<string, any> = {};
+                  sData.forEach((s: any) => {
+                    sMap[s.id] = s;
+                  });
+                  const oMap: Record<string, any> = {};
+                  oData.forEach((o: any) => {
+                    oMap[o.id] = o;
+                  });
+                  const combined: Asset[] = priceData.map((asset) => {
+                    const extra: any = {};
+                    const s = sMap[asset.id];
+                    if (s) {
+                      extra.bullishScore = s.bullishScore;
+                      extra.bearishScore = s.bearishScore;
+                      extra.mentionVolume = s.mentionVolume;
+                    }
+                    const o = oMap[asset.id];
+                    if (o) {
+                      extra.liquidity = o.liquidity;
+                      extra.holders = o.holders;
+                    }
+                    return { ...asset, ...extra };
+                  });
+                  setAssets(combined);
+                } catch (fetchErr) {
+                  console.error(fetchErr);
+                  // Even if merging fails, still set the price data so that
+                  // the table is populated.
+                  setAssets(priceData);
+                }
+              }
           } else {
             setAssets([]);
           }
@@ -253,12 +375,20 @@ export default function Home() {
         max7d,
         minVolume,
         minMarketCap,
+        minBullish,
+        maxBearish,
+        minLiquidity,
+        minHolders,
       } = filters;
       const price = asset.current_price ?? 0;
       const change24h = asset.price_change_percentage_24h ?? 0;
       const change7d = asset.price_change_percentage_7d_in_currency ?? 0;
       const volume = asset.total_volume ?? 0;
       const mcap = asset.market_cap ?? 0;
+      const bullish = asset.bullishScore ?? 0;
+      const bearish = asset.bearishScore ?? 0;
+      const liquidity = asset.liquidity ?? 0;
+      const holders = asset.holders ?? 0;
       // Price range
       if (minPrice !== "" && !isNaN(parseFloat(minPrice)) && price < parseFloat(minPrice)) {
         return false;
@@ -288,6 +418,22 @@ export default function Home() {
       if (minMarketCap !== "" && !isNaN(parseFloat(minMarketCap)) && mcap < parseFloat(minMarketCap)) {
         return false;
       }
+      // Sentiment minimum: require bullish sentiment above threshold
+      if (minBullish !== "" && !isNaN(parseFloat(minBullish)) && bullish < parseFloat(minBullish)) {
+        return false;
+      }
+      // Sentiment maximum: require bearish sentiment below threshold
+      if (maxBearish !== "" && !isNaN(parseFloat(maxBearish)) && bearish > parseFloat(maxBearish)) {
+        return false;
+      }
+      // Liquidity minimum
+      if (minLiquidity !== "" && !isNaN(parseFloat(minLiquidity)) && liquidity < parseFloat(minLiquidity)) {
+        return false;
+      }
+      // Holders minimum
+      if (minHolders !== "" && !isNaN(parseFloat(minHolders)) && holders < parseFloat(minHolders)) {
+        return false;
+      }
       return true;
     })
     .map((asset) => {
@@ -315,6 +461,16 @@ export default function Home() {
             return item.total_volume ?? 0;
           case "market_cap":
             return item.market_cap ?? 0;
+          case "bullish":
+            return item.bullishScore ?? 0;
+          case "bearish":
+            return item.bearishScore ?? 0;
+          case "mentions":
+            return item.mentionVolume ?? 0;
+          case "liquidity":
+            return item.liquidity ?? 0;
+          case "holders":
+            return item.holders ?? 0;
           case "name":
             return item.name.toLowerCase();
           case "score":
@@ -464,6 +620,54 @@ export default function Home() {
                 step="any"
               />
             </div>
+            {/* Bullish sentiment minimum filter */}
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Min Bullish</label>
+              <input
+                type="number"
+                value={filters.minBullish}
+                onChange={(e) => updateFilter("minBullish", e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+                placeholder=""
+                step="any"
+              />
+            </div>
+            {/* Bearish sentiment maximum filter */}
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Max Bearish</label>
+              <input
+                type="number"
+                value={filters.maxBearish}
+                onChange={(e) => updateFilter("maxBearish", e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+                placeholder=""
+                step="any"
+              />
+            </div>
+            {/* Liquidity minimum filter */}
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Min Liquidity</label>
+              <input
+                type="number"
+                value={filters.minLiquidity}
+                onChange={(e) => updateFilter("minLiquidity", e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+                placeholder=""
+                step="any"
+              />
+            </div>
+            {/* Holders minimum filter */}
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Min Holders</label>
+              <input
+                type="number"
+                value={filters.minHolders}
+                onChange={(e) => updateFilter("minHolders", e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 text-sm w-full"
+                placeholder=""
+                step="any"
+              />
+            </div>
           </div>
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-100">
@@ -535,8 +739,63 @@ export default function Home() {
                   className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
                   onClick={() => handleSort("market_cap")}
                 >
-                  Market Cap
+                  Mkt Cap
                   {sortField === "market_cap" && (
+                    <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                  )}
+                </th>
+                {/* Bullish sentiment column header */}
+                <th
+                  scope="col"
+                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => handleSort("bullish")}
+                >
+                  Bullish
+                  {sortField === "bullish" && (
+                    <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                  )}
+                </th>
+                {/* Bearish sentiment column header */}
+                <th
+                  scope="col"
+                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => handleSort("bearish")}
+                >
+                  Bearish
+                  {sortField === "bearish" && (
+                    <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                  )}
+                </th>
+                {/* Mention volume column header */}
+                <th
+                  scope="col"
+                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => handleSort("mentions")}
+                >
+                  Mentions
+                  {sortField === "mentions" && (
+                    <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                  )}
+                </th>
+                {/* Liquidity column header */}
+                <th
+                  scope="col"
+                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => handleSort("liquidity")}
+                >
+                  Liquidity
+                  {sortField === "liquidity" && (
+                    <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                  )}
+                </th>
+                {/* Holders column header */}
+                <th
+                  scope="col"
+                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  onClick={() => handleSort("holders")}
+                >
+                  Holders
+                  {sortField === "holders" && (
                     <span className="ml-1">{sortDirection === "asc" ? "▲" : "▼"}</span>
                   )}
                 </th>
@@ -624,9 +883,41 @@ export default function Home() {
                         })
                       : "—"}
                   </td>
+                  {/* Bullish score cell */}
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {asset.bullishScore !== undefined
+                      ? asset.bullishScore.toFixed(0)
+                      : "—"}
+                  </td>
+                  {/* Bearish score cell */}
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {asset.bearishScore !== undefined
+                      ? asset.bearishScore.toFixed(0)
+                      : "—"}
+                  </td>
+                    {/* Mention volume cell */}
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {asset.mentionVolume !== undefined
+                      ? asset.mentionVolume.toLocaleString()
+                      : "—"}
+                  </td>
+                  {/* Liquidity cell */}
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {asset.liquidity !== undefined
+                      ? `$${asset.liquidity.toLocaleString()}`
+                      : "—"}
+                  </td>
+                  {/* Holders cell */}
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    {asset.holders !== undefined
+                      ? asset.holders.toLocaleString()
+                      : "—"}
+                  </td>
                   {/* Score cell */}
                   <td className="px-4 py-2 whitespace-nowrap">
-                    {asset.score?.toFixed(2)}
+                    {asset.score !== undefined
+                      ? asset.score.toFixed(2)
+                      : "—"}
                   </td>
                 </tr>
               ))}
