@@ -542,6 +542,25 @@ export default function Home() {
       return multiplier * ((aVal as number) - (bVal as number));
     });
 
+  /**
+   * Determine a row colour based on the computed score.  Higher scores
+   * correspond to stronger momentum and sentiment, so these rows are
+   * highlighted in green.  Moderate scores are yellow, low positive
+   * scores are orange, and negative scores are red.  These thresholds
+   * were chosen empirically: adjust them as your dataset evolves.
+   */
+  function getRowColor(score: number | undefined): string {
+    if (score === undefined) return "";
+    // Good moonshot: strong momentum and sentiment
+    if (score >= 8) return "bg-green-50";
+    // Moderate: some positive signals but not exceptional
+    if (score >= 4) return "bg-yellow-50";
+    // Weak positive: slight upside but limited conviction
+    if (score >= 0) return "bg-orange-50";
+    // Negative: overall bearish or thin liquidity
+    return "bg-red-50";
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800 p-6 sm:p-10">
       <header className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -987,7 +1006,10 @@ export default function Home() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filtered.map((asset) => (
-                <tr key={asset.id} className="hover:bg-gray-50">
+                <tr
+                  key={asset.id}
+                  className={`hover:bg-gray-50 ${getRowColor(asset.score)}`}
+                >
                   <td className="px-4 py-2 text-center">
                     <button
                       onClick={() => toggleWatch(asset.id)}
