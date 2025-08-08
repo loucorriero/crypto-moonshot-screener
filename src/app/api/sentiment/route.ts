@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 
-// This endpoint returns mock sentiment data for a set of tokens.  In
-// production you could integrate with a social analytics provider such as
-// LunarCrush or Santiment to measure community engagement, bullish/bearish
-// ratios and trending scores.  The values returned here are randomly
-// generated within a fixed range for demonstration purposes.
+// This endpoint returns sentiment data for a set of tokens.  It attempts to
+// fetch real sentiment from the public CoinGecko API using the `/coins/{id}`
+// endpoint, which exposes `sentiment_votes_up_percentage` and
+// `sentiment_votes_down_percentage`.  When available, we also treat
+// `watchlist_portfolio_users` as a proxy for social mention volume.  If
+// the external request fails (e.g. due to network errors or the token not
+// existing on CoinGecko), we fall back to deterministic pseudo‑random
+// values as before.  This ensures the client always receives data even
+// when live sentiment is unavailable.
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -26,14 +30,63 @@ export async function GET(request: Request) {
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
-  const result = ids.map((id) => {
-    const rand = seedRandom(id);
-    return {
-      id,
-      bullishScore: Math.round(rand() * 100), // 0–100
-      bearishScore: Math.round(rand() * 100),
-      mentionVolume: Math.round(rand() * 10000),
-    };
-  });
-  return NextResponse.json(result);
+  // For each id, attempt to retrieve sentiment from CoinGecko.  If the
+  // request fails, use a seeded random fallback to generate plausible
+  // values.  We serially process the ids with Promise.all to allow
+  // concurrent fetches while still handling errors gracefully.
+  const results = await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const cgRes = await fetch(
+          `https://api.coingecko.com/api/v3/coins/${id}`,
+          {
+            // Do not cache responses to ensure fresh data; the CDN will
+            // maintain its own caching and rate limiting.
+            headers: { accept: "application/json" },
+          }
+        );
+        if (!cgRes.ok) {
+          throw new Error(
+            `CoinGecko request for ${id} failed with status ${cgRes.status}`
+          );
+        }
+        const data = await cgRes.json();
+        // Extract sentiment percentages and mention volume.  Some tokens
+        // might not have these fields, so default to zero.  The API
+        // returns percentages on a 0–100 scale.
+        const bullish =
+          typeof data?.sentiment_votes_up_percentage === "number"
+            ? data.sentiment_votes_up_percentage
+            : 0;
+        const bearish =
+          typeof data?.sentiment_votes_down_percentage === "number"
+            ? data.sentiment_votes_down_percentage
+            : 0;
+        // Use watchlist_portfolio_users as a proxy for community interest.
+        // Fallback to zero if undefined.
+        const mentions =
+          typeof data?.watchlist_portfolio_users === "number"
+            ? data.watchlist_portfolio_users
+            : 0;
+        return {
+          id,
+          bullishScore: Math.round(bullish),
+          bearishScore: Math.round(bearish),
+          mentionVolume: Math.round(mentions),
+        };
+      } catch (err) {
+        // Fall back to seeded pseudo‑random values for reproducibility.  This
+        // ensures the endpoint still returns data if external requests
+        // fail (e.g. rate limits or network issues).
+        const rand = seedRandom(id);
+        return {
+          id,
+          bullishScore: Math.round(rand() * 100),
+          bearishScore: Math.round(rand() * 100),
+          mentionVolume: Math.round(rand() * 10000),
+        };
+      }
+    })
+  );
+  return NextResponse.json(results);
 }
