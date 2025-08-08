@@ -16,6 +16,10 @@ async function fetchPrices(ids: string[], vsCurrency: string = "usd") {
   const url = `https://api.coingecko.com/api/v3/coins/markets?${params}`;
   const res = await fetch(url, { next: { revalidate: 60 } });
   if (!res.ok) {
+    // Bubble up the status code by including it in the error message.  The
+    // caller will parse this string to determine the appropriate response
+    // status.  We include both the status and statusText for diagnostic
+    // purposes.  The message format is matched in the catch block below.
     throw new Error(`Failed to fetch prices: ${res.status} ${res.statusText}`);
   }
   return (await res.json()) as any[];
@@ -37,9 +41,16 @@ export async function GET(request: Request) {
     return NextResponse.json(data);
   } catch (err: any) {
     console.error(err);
+    const message: string = err?.message ?? "Unknown error";
+    // Attempt to extract a status code from the error message.  The
+    // fetchPrices function prefixes messages with "Failed to fetch prices:".
+    // If a status code is present, use it for the HTTP response; otherwise
+    // default to 500.
+    const match = message.match(/Failed to fetch prices:\s*(\d+)/);
+    const statusCode = match ? parseInt(match[1], 10) : 500;
     return NextResponse.json(
-      { error: err?.message ?? "Unknown error" },
-      { status: 500 }
+      { error: message },
+      { status: statusCode }
     );
   }
 }

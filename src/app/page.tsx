@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 /**
  * Asset represents a crypto currency returned from our pricing API.  It includes
@@ -67,6 +67,13 @@ export default function Home() {
   const [search, setSearch] = useState<string>("");
   const [watchlist, setWatchlist] = useState<Set<string>>(new Set());
 
+  // When searching, debounce API calls to avoid hitting rate limits.  This
+  // ref stores the current timeout so that it can be cleared on subsequent
+  // renders before scheduling a new request.  Without debouncing, each
+  // keystroke would immediately trigger a network request which can easily
+  // exceed the CoinGecko free API rate limits and result in 429 errors.
+  const searchTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+
   // Helper to load the default set of tokens defined in DEFAULT_IDS.
   async function loadDefault() {
     setLoading(true);
@@ -97,27 +104,51 @@ export default function Home() {
   // reasonable API request sizes and rate limits.
   useEffect(() => {
     const term = search.trim().toLowerCase();
+    // If the search box is empty, reload the default list immediately and
+    // cancel any pending debounce.  Clearing the search should reset the
+    // interface without delay.
     if (!term) {
-      // Reset to default list when search is cleared.
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+        searchTimeoutRef.current = undefined;
+      }
       loadDefault();
       return;
     }
-    async function loadSearch() {
+
+    // Cancel the previous scheduled search to avoid multiple overlapping
+    // requests.  Each new keystroke resets the timer.
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    searchTimeoutRef.current = setTimeout(async () => {
       setLoading(true);
       try {
         const res = await fetch(
           `/api/search?query=${encodeURIComponent(term)}`
         );
         const data = await res.json();
-        // data.coins is an array of search results; each has an `id`.
         if (data?.coins) {
-          const ids: string[] = data.coins.map((c: any) => c.id).slice(0, 15);
+          // Limit to 10 IDs to reduce the size of price queries and stay
+          // within rate limits.  Fetching too many IDs at once increases
+          // the likelihood of a 429 (Too Many Requests) response from
+          // CoinGecko.
+          const ids: string[] = data.coins.map((c: any) => c.id).slice(0, 10);
           if (ids.length > 0) {
             const priceRes = await fetch(
               `/api/prices?ids=${ids.join(",")}`
             );
-            const priceData: Asset[] = await priceRes.json();
-            setAssets(priceData);
+            if (!priceRes.ok) {
+              // If the price endpoint returns an error (e.g. 429 Too Many
+              // Requests), log it and clear the results instead of throwing.
+              console.error(
+                `Price fetch failed with status ${priceRes.status}`
+              );
+              setAssets([]);
+            } else {
+              const priceData: Asset[] = await priceRes.json();
+              setAssets(priceData);
+            }
           } else {
             setAssets([]);
           }
@@ -127,8 +158,17 @@ export default function Home() {
       } finally {
         setLoading(false);
       }
-    }
-    loadSearch();
+    }, 500); // 500ms debounce delay
+
+    // Cleanup function to clear the timeout when the component unmounts or
+    // before the next effect run.  This prevents attempting to update state
+    // after the component has unmounted.
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+        searchTimeoutRef.current = undefined;
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
